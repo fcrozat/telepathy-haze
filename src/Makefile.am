@@ -43,6 +43,8 @@ telepathy_haze_SOURCES = main.c \
                          contact-list.h \
                          im-channel.h \
                          im-channel.c \
+                         chat-channel.h \
+                         chat-channel.c \
                          im-channel-factory.c \
                          im-channel-factory.h \
                          notify.c \

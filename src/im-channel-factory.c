@@ -24,6 +24,7 @@
 
 #include <string.h>
 
+#include <telepathy-glib/telepathy-glib.h>
 #include <telepathy-glib/base-connection.h>
 #include <telepathy-glib/channel-manager.h>
 #include <telepathy-glib/dbus.h>
@@ -53,7 +54,7 @@ G_DEFINE_TYPE_WITH_CODE(HazeImChannelFactory,
 /* properties: */
 enum {
     PROP_CONNECTION = 1,
-    
+
     LAST_PROPERTY
 };
 
@@ -417,6 +418,9 @@ haze_write_conv (PurpleConversation *conv,
         case PURPLE_CONV_TYPE_IM:
             haze_write_im (conv, name, message, flags, mtime);
             break;
+        case PURPLE_CONV_TYPE_CHAT:
+            /*haze_write_chat (conv, name, message, flags, mtime);*/
+            break;
         default:
             DEBUG ("ignoring message to conv type %u (flags=%u; message=%s)",
                 type, flags, message);
@@ -460,7 +464,7 @@ haze_destroy_conversation (PurpleConversation *conv)
     HazeConversationUiData *ui_data;
 
     DEBUG ("(PurpleConversation *)%p destroyed", conv);
-    if (conv->type != PURPLE_CONV_TYPE_IM)
+    if ((conv->type != PURPLE_CONV_TYPE_IM) && (conv->type != PURPLE_CONV_TYPE_CHAT))
     {
         DEBUG ("not an IM conversation; ignoring");
         return;
@@ -475,6 +479,46 @@ haze_destroy_conversation (PurpleConversation *conv)
     conv->ui_data = NULL;
 }
 
+static void haze_chat_add_users(PurpleConversation *conv,
+                                GList *cbuddies,
+                                gboolean new_arrivals)
+{
+    HazeConversationUiData *ui_data  = PURPLE_CONV_GET_HAZE_UI_DATA (conv);
+    PurpleAccount *account = purple_conversation_get_account (conv);
+    HazeImChannelFactory *im_factory =
+        ACCOUNT_GET_HAZE_CONNECTION (account)->im_factory;
+    TpBaseConnection *conn = TP_BASE_CONNECTION (im_factory->priv->conn);
+    /* FIXME need to replace with HazeChatChannel */
+    HazeIMChannel *chan = get_im_channel (im_factory, ui_data->contact_handle,
+        ui_data->contact_handle, NULL, NULL);
+    TpIntset *add = tp_intset_new ();
+    TpHandleRepoIface *contact_repo = tp_base_connection_get_handles (conn, TP_HANDLE_TYPE_CONTACT);
+    GList *l_iter;
+
+
+    DEBUG ("(PurpleConversation *)%p add_users", conv);
+    if (conv->type != PURPLE_CONV_TYPE_CHAT)
+    {
+        DEBUG ("not an Chat conversation; ignoring");
+        return;
+    }
+
+    for (l_iter = cbuddies; l_iter != NULL; l_iter = l_iter->next)
+    {
+      TpHandle handle = tp_handle_ensure (contact_repo, purple_buddy_get_name (l_iter->data), NULL, NULL);
+
+      if (G_LIKELY (add != 0))
+        tp_intset_add (add, handle);
+    }
+
+    tp_group_mixin_change_members((GObject *)chan, "", add, NULL, NULL/*add_local_pending*/, NULL, ui_data->contact_handle, TP_CHANNEL_GROUP_CHANGE_REASON_NONE);
+
+}
+
+static void haze_chat_remove_users(PurpleConversation *conv, GList *users)
+{
+}
+
 static PurpleConversationUiOps
 conversation_ui_ops =
 {
@@ -483,9 +527,9 @@ conversation_ui_ops =
     NULL,                      /* write_chat */
     haze_write_im,             /* write_im */
     haze_write_conv,           /* write_conv */
-    NULL,                      /* chat_add_users */
+    haze_chat_add_users,       /* chat_add_users */
     NULL,                      /* chat_rename_user */
-    NULL,                      /* chat_remove_users */
+    haze_chat_remove_users,    /* chat_remove_users */
     NULL,                      /* chat_update_user */
 
     NULL,                      /* present */
